@@ -11,6 +11,7 @@ import (
 type Elem interface {
 	Out() error
 	IsAlive() bool
+	CreatedTime() time.Time
 }
 
 // Pool ...
@@ -20,20 +21,22 @@ type Pool interface {
 	Len() int
 	Close() error
 	IsClosed() bool
+	OutAllBefore(time.Time)
 }
 
 // ChanPool ...
 type ChanPool struct {
-	factory   func(Pool) (Elem, error)
-	elems     chan Elem
-	closeChan chan struct{}
-	closed    int32
-	heartTime time.Duration
-	maxWait   time.Duration
-	maxActive int32
-	maxIdle   int32
-	cur       int32
-	status    int
+	factory    func(Pool) (Elem, error)
+	elems      chan Elem
+	closeChan  chan struct{}
+	closed     int32
+	heartTime  time.Duration
+	maxWait    time.Duration
+	maxActive  int32
+	maxIdle    int32
+	cur        int32
+	status     int
+	lastFailed int64
 }
 
 var _ Pool = (*ChanPool)(nil)
@@ -51,6 +54,10 @@ func NewChanPool(factory func(Pool) (Elem, error),
 	}
 	go cp.run()
 	return
+}
+
+func (p *ChanPool) OutAllBefore(t time.Time) {
+	atomic.StoreInt64(&p.lastFailed, t.Unix())
 }
 
 // IsClosed ...
@@ -74,6 +81,10 @@ var (
 
 // Get ...
 func (p *ChanPool) Get() (elem Elem, err error) {
+	if time.Now().Unix()-atomic.LoadInt64(&p.lastFailed) < int64(p.maxWait/time.Second) {
+		err = os.ErrNotExist
+		return
+	}
 	select {
 	case elem = <-p.elems:
 	case <-p.closeChan:
@@ -125,6 +136,18 @@ func (p *ChanPool) run() {
 func (p *ChanPool) doCheck() {
 	elems := p.elems
 	n := len(elems)
+	if time.Now().Unix()-atomic.LoadInt64(&p.lastFailed) < int64(p.maxWait/time.Second) {
+		for i := 0; i < n; i++ {
+			select {
+			case elem := <-elems:
+				if elem.CreatedTime().Unix() <= p.lastFailed {
+					elem.Out()
+					continue
+				}
+			}
+		}
+		return
+	}
 	deleted := int32(0)
 	maxDeleted := int32(n) - p.maxIdle
 	if maxDeleted > 3 {
@@ -150,6 +173,10 @@ func (p *ChanPool) doCheck() {
 	for i := 1; i < n; i++ {
 		select {
 		case elem := <-elems:
+			if elem.CreatedTime().Unix() <= p.lastFailed {
+				elem.Out()
+				continue
+			}
 			if elem == first {
 				p.Put(elem)
 				return

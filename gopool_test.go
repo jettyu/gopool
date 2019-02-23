@@ -10,13 +10,14 @@ import (
 )
 
 type testElem struct {
-	active int
-	gopool gopool.Pool
+	active  int
+	pool    gopool.Pool
+	created time.Time
 }
 
 func (p *testElem) Close() error {
 	if p.IsAlive() {
-		return p.gopool.Put(p)
+		return p.pool.Put(p)
 	}
 	return nil
 }
@@ -34,6 +35,10 @@ func (p *testElem) IsAlive() bool {
 	return true
 }
 
+func (p *testElem) CreatedTime() time.Time {
+	return p.created
+}
+
 var _ gopool.Elem = (*testElem)(nil)
 
 func TestChanPool(t *testing.T) {
@@ -41,7 +46,8 @@ func TestChanPool(t *testing.T) {
 	maxIdle := 3
 	pl := gopool.NewChanPool(func(pl gopool.Pool) (elem gopool.Elem, err error) {
 		return &testElem{
-			gopool: pl,
+			pool:    pl,
+			created: time.Now(),
 		}, nil
 	}, maxActive, maxIdle, time.Millisecond*15, time.Millisecond*15)
 	defer pl.Close()
