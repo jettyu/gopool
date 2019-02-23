@@ -122,6 +122,7 @@ func (p *ChanPool) Put(elem Elem) (err error) {
 }
 
 func (p *ChanPool) run() {
+	p.doCheck()
 	for !p.IsClosed() {
 		select {
 		case <-p.closeChan:
@@ -148,6 +149,15 @@ func (p *ChanPool) doCheck() {
 		}
 		return
 	}
+	first, e := p.Get()
+	if e != nil {
+		return
+	}
+	if !first.IsAlive() {
+		first.Out()
+	} else {
+		p.Put(first)
+	}
 	deleted := int32(0)
 	maxDeleted := int32(n) - p.maxIdle
 	if maxDeleted > 3 {
@@ -157,17 +167,6 @@ func (p *ChanPool) doCheck() {
 		p.status++
 	} else {
 		p.status = 0
-	}
-	var first Elem
-	select {
-	case first = <-elems:
-		if !first.IsAlive() {
-			first.Out()
-		} else {
-			p.Put(first)
-		}
-	default:
-		return
 	}
 
 	for i := 1; i < n; i++ {
