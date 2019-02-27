@@ -13,6 +13,15 @@ type testElem struct {
 	active  int
 	pool    gopool.Pool
 	created time.Time
+	inpool  bool
+}
+
+func (p *testElem) SetInPool(inpool bool) {
+	p.inpool = inpool
+}
+
+func (p *testElem) IsInPool() bool {
+	return p.inpool
 }
 
 func (p *testElem) Close() error {
@@ -49,7 +58,7 @@ func TestChanPool(t *testing.T) {
 			pool:    pl,
 			created: time.Now(),
 		}, nil
-	}, maxActive, maxIdle, time.Millisecond*15, time.Millisecond*15)
+	}, maxActive, maxIdle, time.Millisecond*10, time.Millisecond*10)
 	defer pl.Close()
 	elems := make(chan *testElem, maxActive)
 	var wg sync.WaitGroup
@@ -95,9 +104,7 @@ func TestChanPool(t *testing.T) {
 			if !elem.IsAlive() {
 				t.Fatal(elem)
 			}
-			if e := pl.Put(elem); e != nil {
-				t.Fatal(e)
-			}
+			elem.(*testElem).Close()
 		}(i)
 	}
 	wg.Wait()

@@ -2,6 +2,7 @@ package gopool
 
 import (
 	"errors"
+	"log"
 	"os"
 	"sync/atomic"
 	"time"
@@ -12,6 +13,8 @@ type Elem interface {
 	Out() error
 	IsAlive() bool
 	CreatedTime() time.Time
+	SetInPool(bool)
+	IsInPool() bool
 }
 
 // Pool ...
@@ -104,11 +107,24 @@ func (p *ChanPool) Get() (elem Elem, err error) {
 			}
 		}
 	}
+	if elem != nil {
+		elem.SetInPool(false)
+	}
 	return
 }
 
 // Put ...
 func (p *ChanPool) Put(elem Elem) (err error) {
+	if elem.IsInPool() {
+		log.Println("repeated put back")
+		return
+	}
+	if elem.CreatedTime().Unix() <= atomic.LoadInt64(&p.lastFailed) {
+		err = elem.Out()
+		return
+	}
+
+	elem.SetInPool(true)
 	if !p.IsClosed() {
 		select {
 		case p.elems <- elem:
@@ -135,28 +151,35 @@ func (p *ChanPool) run() {
 }
 
 func (p *ChanPool) doCheck() {
-	elems := p.elems
-	n := len(elems)
-	if time.Now().Unix()-atomic.LoadInt64(&p.lastFailed) < int64(p.maxWait/time.Second) {
+	var (
+		elems      = p.elems
+		n          = len(elems)
+		now        = time.Now()
+		lastFailed = atomic.LoadInt64(&p.lastFailed)
+		first      Elem
+		e          error
+	)
+	if now.Unix()-lastFailed < int64(p.maxWait/time.Second) {
 		for i := 0; i < n; i++ {
 			select {
 			case elem := <-elems:
-				if elem.CreatedTime().Unix() <= p.lastFailed {
+				if elem.CreatedTime().Unix() <= lastFailed {
 					elem.Out()
 					continue
 				}
 			}
 		}
-		return
-	}
-	first, e := p.Get()
-	if e != nil {
-		return
-	}
-	if !first.IsAlive() {
-		first.Out()
+		n = len(elems)
 	} else {
-		p.Put(first)
+		first, e = p.Get()
+		if e != nil {
+			return
+		}
+		if !first.IsAlive() {
+			first.Out()
+		} else {
+			p.Put(first)
+		}
 	}
 	deleted := int32(0)
 	maxDeleted := int32(n) - p.maxIdle
@@ -172,10 +195,7 @@ func (p *ChanPool) doCheck() {
 	for i := 1; i < n; i++ {
 		select {
 		case elem := <-elems:
-			if elem.CreatedTime().Unix() <= p.lastFailed {
-				elem.Out()
-				continue
-			}
+			elem.SetInPool(false)
 			if elem == first {
 				p.Put(elem)
 				return
@@ -183,6 +203,7 @@ func (p *ChanPool) doCheck() {
 			if deleted < maxDeleted && p.status > 3 && maxDeleted > 0 {
 				elem.Out()
 				deleted++
+				break
 			}
 			if !elem.IsAlive() {
 				elem.Out()
