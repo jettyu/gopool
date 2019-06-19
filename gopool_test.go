@@ -10,18 +10,16 @@ import (
 )
 
 type testElem struct {
+	gopool.ElemBase
 	active  int
 	pool    gopool.Pool
-	created time.Time
-	inpool  bool
 }
 
-func (p *testElem) SetInPool(inpool bool) {
-	p.inpool = inpool
-}
-
-func (p *testElem) IsInPool() bool {
-	return p.inpool
+func newTestElem(pool gopool.Pool) (gopool.Elem, error) {
+	return &testElem{
+		ElemBase:gopool.NewElemBase(),
+		pool:pool,
+	},nil
 }
 
 func (p *testElem) Close() error {
@@ -44,21 +42,13 @@ func (p *testElem) IsAlive() bool {
 	return true
 }
 
-func (p *testElem) CreatedTime() time.Time {
-	return p.created
-}
-
 var _ gopool.Elem = (*testElem)(nil)
 
 func TestChanPool(t *testing.T) {
 	maxActive := 10
 	maxIdle := 3
-	pl := gopool.NewChanPool(func(pl gopool.Pool) (elem gopool.Elem, err error) {
-		return &testElem{
-			pool:    pl,
-			created: time.Now(),
-		}, nil
-	}, maxActive, maxIdle, time.Millisecond*10, time.Millisecond*10)
+	pl := gopool.NewChanPool(newTestElem,
+		 maxActive, maxIdle, time.Millisecond*10, time.Millisecond*10)
 	defer pl.Close()
 	elems := make(chan *testElem, maxActive)
 	var wg sync.WaitGroup

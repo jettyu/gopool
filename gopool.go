@@ -8,13 +8,46 @@ import (
 	"time"
 )
 
+// ElemBase ...
+type ElemBase interface {
+	CreatedTime() time.Time
+	SetInPool(bool)
+	IsInPool() bool
+}
+
+// elemBase ...
+type elemBase struct {
+	created time.Time
+	inpool  bool
+}
+
+// NewElemBase ...
+func NewElemBase() ElemBase {
+	return &elemBase{
+		created: time.Now(),
+	}
+}
+
+// CreatedTime ...
+func (p *elemBase) CreatedTime() time.Time {
+	return p.created
+}
+
+// SetInPool ...
+func (p *elemBase) SetInPool(ok bool) {
+	p.inpool = ok
+}
+
+// IsInPool ...
+func (p *elemBase) IsInPool() bool {
+	return p.inpool
+}
+
 // Elem ...
 type Elem interface {
 	Out() error
 	IsAlive() bool
-	CreatedTime() time.Time
-	SetInPool(bool)
-	IsInPool() bool
+	ElemBase
 }
 
 // Pool ...
@@ -59,6 +92,7 @@ func NewChanPool(factory func(Pool) (Elem, error),
 	return
 }
 
+// OutAllBefore ...
 func (p *ChanPool) OutAllBefore(t time.Time) {
 	atomic.StoreInt64(&p.lastFailed, t.Unix())
 }
