@@ -128,12 +128,14 @@ func (p *ChanPool) Get() (elem Elem, err error) {
 		err = ErrPoolClosed
 	default:
 		if atomic.AddInt32(&p.cur, 1) > p.maxActive {
+			timer := time.NewTimer(p.maxWait)
 			select {
 			case elem = <-p.elems:
-			case <-time.After(p.maxWait):
+			case <-timer.C:
 				err = os.ErrNotExist
 				atomic.AddInt32(&p.cur, -1)
 			}
+			timer.Stop()
 		} else {
 			elem, err = p.factory(p)
 			if err != nil {
@@ -173,14 +175,17 @@ func (p *ChanPool) Put(elem Elem) (err error) {
 
 func (p *ChanPool) run() {
 	p.doCheck()
+	timer := time.NewTimer(p.heartTime)
+	defer timer.Stop()
 	for !p.IsClosed() {
 		select {
 		case <-p.closeChan:
 			p.doStop()
 			return
-		case <-time.After(p.heartTime):
+		case <-timer.C:
 			p.doCheck()
 		}
+		timer.Reset(p.heartTime)
 	}
 }
 
@@ -253,13 +258,17 @@ func (p *ChanPool) doCheck() {
 }
 
 func (p *ChanPool) doStop() {
+	waitTime := time.Second * 3
+	timer := time.NewTimer(waitTime)
+	defer timer.Stop()
 	for {
 		select {
 		case elem := <-p.elems:
 			elem.Out()
-		case <-time.After(time.Second * 3):
+		case <-timer.C:
 			return
 		}
+		timer.Reset(waitTime)
 	}
 }
 

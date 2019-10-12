@@ -11,15 +11,15 @@ import (
 
 type testElem struct {
 	gopool.ElemBase
-	active  int
-	pool    gopool.Pool
+	active int
+	pool   gopool.Pool
 }
 
 func newTestElem(pool gopool.Pool) (gopool.Elem, error) {
 	return &testElem{
-		ElemBase:gopool.NewElemBase(),
-		pool:pool,
-	},nil
+		ElemBase: gopool.NewElemBase(),
+		pool:     pool,
+	}, nil
 }
 
 func (p *testElem) Close() error {
@@ -48,7 +48,7 @@ func TestChanPool(t *testing.T) {
 	maxActive := 10
 	maxIdle := 3
 	pl := gopool.NewChanPool(newTestElem,
-		 maxActive, maxIdle, time.Millisecond*10, time.Millisecond*10)
+		maxActive, maxIdle, time.Millisecond*10, time.Millisecond*10)
 	defer pl.Close()
 	elems := make(chan *testElem, maxActive)
 	var wg sync.WaitGroup
@@ -99,6 +99,6 @@ func TestChanPool(t *testing.T) {
 	}
 	wg.Wait()
 	if pl.Len() != maxIdle {
-		t.Fatal(pl.Len())
+		t.Fatal(pl.Len(), maxIdle)
 	}
 }
